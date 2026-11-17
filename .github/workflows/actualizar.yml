@@ -1,0 +1,57 @@
+name: Actualizar tipo de cambio
+
+on:
+  schedule:
+    # Cada 2 horas de 6:15 a 20:15 hora de Guatemala (GitHub usa UTC = GT + 6h)
+    - cron: "15 0,2,12,14,16,18,20,22 * * *"
+  workflow_dispatch: {}   # boton "Run workflow" para correrlo a mano
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Descargar Banguat y generar pagina
+        run: |
+          pip install requests
+          python generar.py
+
+      - name: Guardar cambios en el repositorio
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs estado.txt
+          if git diff --cached --quiet; then
+            echo "Sin cambios"
+          else
+            git commit -m "Tipo de cambio $(TZ=America/Guatemala date +'%Y-%m-%d %H:%M')"
+            git push
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  publicar:
+    needs: generar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
