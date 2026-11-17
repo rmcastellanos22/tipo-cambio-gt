@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tipo de cambio en vivo</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f6f6f4;
+    --surface: #fcfcfb;
+    --border: #e4e3df;
+    --grid: #ecebe7;
+    --text-1: #0b0b0b;
+    --text-2: #52514e;
+    --text-3: #7a7974;
+    --series: #2a78d6;
+    --accent-soft: #e8f1fc;
+    --live: #0ca30c;
+    --warn: #b26b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --bg: #121211;
+      --surface: #1a1a19;
+      --border: #2e2e2c;
+      --grid: #272725;
+      --text-1: #f0efec;
+      --text-2: #c3c2b7;
+      --text-3: #8f8e86;
+      --series: #3987e5;
+      --accent-soft: #1d2a3a;
+      --warn: #fab219;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text-1);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 40px; }
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 24px; }
+  h1 { font-size: 26px; line-height: 1.15; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--text-2); margin-top: 4px; }
+  .status { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); position: relative; flex: none; }
+  .dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--live); opacity: .35; animation: pulse 2s infinite; }
+  .status.stale .dot { background: var(--warn); } .status.stale .dot::after { border-color: var(--warn); }
+  .status.preview .dot { background: var(--text-3); } .status.preview .dot::after { display: none; }
+  @keyframes pulse { 0% { transform: scale(.6); opacity: .5 } 100% { transform: scale(1.6); opacity: 0 } }
+  @media (max-width: 480px) { .card-top { flex-direction: column; } .date { text-align: left; } .big { font-size: 38px; } }
+  @media (prefers-reduced-motion: reduce) { .dot::after { animation: none; } }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px 18px; }
+  .card-top { display: flex; flex-direction: column; gap: 2px; }
+  .pair { white-space: nowrap; font-weight: 600; font-size: 14px; letter-spacing: .02em; }
+  .pair small { font-weight: 400; color: var(--text-3); margin-left: 6px; letter-spacing: 0; }
+  .date { font-size: 13px; color: var(--text-3); }
+  .big { font-size: 44px; font-weight: 650; letter-spacing: -0.02em; margin: 10px 0 2px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .big .cur { font-size: 24px; font-weight: 500; color: var(--text-2); margin-right: 6px; }
+  .unit { color: var(--text-2); font-size: 14px; }
+  .delta { margin-top: 12px; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .delta b { color: var(--text-1); font-weight: 600; }
+  .meta { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+  .panel { margin-top: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; }
+  .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
+  h2 { font-size: 17px; margin: 0; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; }
+  .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
+  .seg button { border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text-1); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .seg button:focus-visible, .chart-hit:focus-visible { outline: 2px solid var(--series); outline-offset: 2px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px 20px; margin: 14px 0 6px; }
+  .stat .k { font-size: 12px; color: var(--text-3); }
+  .stat .v { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .v small { display: block; font-weight: 400; color: var(--text-3); font-size: 12px; }
+
+  .chart { position: relative; margin-top: 8px; }
+  .chart svg { display: block; width: 100%; height: 300px; overflow: visible; }
+  .chart text { fill: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,.12); white-space: nowrap; opacity: 0; transition: opacity .08s; }
+  .tip strong { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .tip span { color: var(--text-3); }
+  .chart-hit { cursor: crosshair; }
+
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: var(--text-2); font-size: 13px; }
+  .tbl-wrap { max-height: 280px; overflow: auto; margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 12px; text-align: right; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  th { position: sticky; top: 0; background: var(--surface); color: var(--text-2); font-weight: 600; }
+
+  .cards { grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
+  .big .cur.txt { font-size: 20px; }
+  .btn { border: 1px solid var(--border); background: var(--surface); color: var(--text-1); font: inherit; font-size: 13px;
+    padding: 6px 12px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { border-color: var(--text-3); }
+  .btn:focus-visible { outline: 2px solid var(--series); outline-offset: 2px; }
+  .panel-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-top: 14px; }
+  .panel-foot details { margin-top: 0; }
+  .dl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .dl-note { font-size: 12.5px; color: var(--text-3); }
+  .flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: stretch; gap: 10px; margin: 16px 0 12px; }
+  .step { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .step .k { font-size: 12px; color: var(--text-3); }
+  .step .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .step .n { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
+  .step.res { background: var(--accent-soft); border-color: transparent; }
+  .arrow { align-self: center; color: var(--text-3); font-size: 18px; }
+  .explica p { color: var(--text-2); margin: 6px 0; max-width: 78ch; }
+  .formula { font-variant-numeric: tabular-nums; color: var(--text-1); font-weight: 600; }
+  @media (max-width: 640px) { .flow { grid-template-columns: 1fr; } .arrow { transform: rotate(90deg); justify-self: center; } }
+  footer a { color: var(--series); }
+  footer { margin-top: 20px; font-size: 12.5px; color: var(--text-3); line-height: 1.6; }
+  .err { margin-top: 16px; padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); }
+  .skeleton { color: var(--text-3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Tipo de cambio</h1>
+      <div class="sub">Referencia oficial del Banco de Guatemala</div>
+    </div>
+    <div class="status" id="status" role="status"><span class="dot"></span><span id="status-txt">Conectando...</span></div>
+  </header>
+
+  <section class="cards" aria-label="Tipo de cambio vigente">
+    <article class="card" id="card-usd">
+      <div class="card-top"><div class="pair">USD / GTQ<small>Dólar estadounidense</small></div><div class="date" data-f="fecha">&nbsp;</div></div>
+      <div class="big"><span class="cur">Q</span><span data-f="valor" class="skeleton">-.-----</span></div>
+      <div class="unit">por 1 dólar &middot; tipo de cambio de referencia</div>
+      <div class="delta" data-f="delta">&nbsp;</div>
+    </article>
+    <article class="card" id="card-eurusd">
+      <div class="card-top"><div class="pair">EUR / USD<small>Euro en dólares</small></div><div class="date" data-f="fecha">&nbsp;</div></div>
+      <div class="big"><span class="cur txt">US$</span><span data-f="valor" class="skeleton">-.-----</span></div>
+      <div class="unit">por 1 euro &middot; promedio compra/venta Banguat</div>
+      <div class="delta" data-f="delta">&nbsp;</div>
+      <div class="meta" data-f="meta">&nbsp;</div>
+    </article>
+    <article class="card" id="card-eur">
+      <div class="card-top"><div class="pair">EUR / GTQ<small>Euro en quetzales</small></div><div class="date" data-f="fecha">&nbsp;</div></div>
+      <div class="big"><span class="cur">Q</span><span data-f="valor" class="skeleton">-.-----</span></div>
+      <div class="unit">por 1 euro &middot; euro &rarr; dólar &rarr; quetzal</div>
+      <div class="delta" data-f="delta">&nbsp;</div>
+      <div class="meta" data-f="meta">&nbsp;</div>
+    </article>
+  </section>
+
+  <section class="panel" aria-labelledby="hist-title">
+    <div class="panel-head">
+      <h2 id="hist-title">Histórico</h2>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Moneda" id="seg-mon">
+          <button type="button" data-v="usd" aria-pressed="true">USD/GTQ</button>
+          <button type="button" data-v="eurusd" aria-pressed="false">EUR/USD</button>
+          <button type="button" data-v="eur" aria-pressed="false">EUR/GTQ</button>
+        </div>
+        <div class="seg" role="group" aria-label="Período" id="seg-rng">
+          <button type="button" data-v="30" aria-pressed="false">1M</button>
+          <button type="button" data-v="90" aria-pressed="true">3M</button>
+          <button type="button" data-v="180" aria-pressed="false">6M</button>
+          <button type="button" data-v="365" aria-pressed="false">1A</button>
+          <button type="button" data-v="1095" aria-pressed="false">3A</button>
+        </div>
+      </div>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="chart" id="chart">
+      <svg id="svg" role="img" aria-labelledby="chart-desc"><desc id="chart-desc"></desc></svg>
+      <div class="tip" id="tip" aria-hidden="true"></div>
+    </div>
+    <div class="panel-foot">
+      <details>
+        <summary>Ver datos del período</summary>
+        <div class="tbl-wrap"><table id="tbl"><thead><tr><th>Fecha</th><th id="tbl-h">Q por USD</th></tr></thead><tbody></tbody></table></div>
+      </details>
+      <div class="dl">
+        <span class="dl-note" id="dl-note"></span>
+        <button type="button" class="btn" id="dl-periodo">&darr; Descargar período (CSV)</button>
+        <button type="button" class="btn" id="dl-todo">&darr; Descargar todo</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel explica" aria-labelledby="como-title">
+    <h2 id="como-title">¿Cómo se calcula el euro en quetzales?</h2>
+    <p>El Banco de Guatemala no publica directamente cuántos quetzales vale un euro. Publica dos datos: cuántos dólares vale un euro (EUR/USD) y cuántos quetzales vale un dólar (tipo de cambio de referencia). Por eso el euro se convierte primero a dólares y luego los dólares a quetzales.</p>
+    <div class="flow" id="flow">
+      <div class="step"><div class="k">Paso 1 &middot; Euro a dólar</div><div class="v" data-x="paso1">&nbsp;</div><div class="n" data-x="paso1n">&nbsp;</div></div>
+      <div class="arrow" aria-hidden="true">&rarr;</div>
+      <div class="step"><div class="k">Paso 2 &middot; Dólar a quetzal</div><div class="v" data-x="paso2">&nbsp;</div><div class="n" data-x="paso2n">&nbsp;</div></div>
+      <div class="arrow" aria-hidden="true">&rarr;</div>
+      <div class="step res"><div class="k">Resultado &middot; Euro a quetzal</div><div class="v" data-x="res">&nbsp;</div><div class="n" data-x="resn">&nbsp;</div></div>
+    </div>
+    <p class="formula" data-x="formula">&nbsp;</p>
+    <p>El EUR/USD se toma como el promedio entre la compra y la venta publicadas por Banguat. Esa cotización solo se publica en días hábiles; los fines de semana y feriados se usa la del último día hábil, mientras que el dólar sí tiene tipo de cambio de referencia todos los días.</p>
+  </section>
+
+  <div id="err" class="err" hidden></div>
+
+  <footer>
+    Fuente: Banco de Guatemala, Web Service de tipo de cambio. La información oficial es la publicada por el Banco de Guatemala.
+    <span id="archivos" hidden><br>Datos para sistemas: <a href="tc.json">tc.json</a> &middot; <a href="tc.csv">tc.csv</a></span>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const API = "api/tc";
+  const REFRESCO_MS = 15 * 60 * 1000;
+  const NS = "http://www.w3.org/2000/svg";
+  const $ = (s, r = document) => r.querySelector(s);
+  const state = { data: null, mon: "usd", dias: 90, preview: false };
+
+  // ---------- formato ----------
+  const nf = (d) => new Intl.NumberFormat("es-GT", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const f5 = nf(5), f4 = nf(4), f2 = nf(2);
+  const toDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); };
+  const fLarga = (iso) => toDate(iso).toLocaleDateString("es-GT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const fCorta = (iso) => toDate(iso).toLocaleDateString("es-GT", { day: "2-digit", month: "short", year: "numeric" });
+  const signo = (x, fmt) => (x > 0 ? "+" : x < 0 ? "−" : "") + fmt.format(Math.abs(x));
+  const flecha = (x) => (x > 0 ? "▲" : x < 0 ? "▼" : "●");
+  const prom = (r) => (r[2] + r[3]) / 2; // EUR/USD promedio compra/venta
+
+  // ---------- series disponibles ----------
+  const UNI = {
+    usd:    { lbl: "USD/GTQ", pre: "Q ",   col: "Q por USD",   desc: "Quetzales por dólar" },
+    eurusd: { lbl: "EUR/USD", pre: "US$ ", col: "USD por EUR", desc: "Dólares por euro" },
+    eur:    { lbl: "EUR/GTQ", pre: "Q ",   col: "Q por EUR",   desc: "Quetzales por euro" },
+  };
+  function serie(mon) {
+    const d = state.data;
+    if (mon === "usd") return d.usd.map((r) => [r[0], r[1]]);
+    if (mon === "eurusd") return d.eur.map((r) => [r[0], prom(r)]);
+    return d.eur.map((r) => [r[0], r[1]]);
+  }
+
+  // ---------- estado de conexion ----------
+  function setStatus(kind, txt) {
+    const el = $("#status");
+    el.classList.toggle("stale", kind === "stale");
+    el.classList.toggle("preview", kind === "preview");
+    $("#status-txt").textContent = txt;
+  }
+
+  // ---------- tarjetas ----------
+  function pintaTarjeta(card, serie, fmtVal, extra) {
+    const n = serie.length;
+    if (!n) return;
+    const [f, v] = serie[n - 1];
+    const prev = n > 1 ? serie[n - 2] : null;
+    $("[data-f=fecha]", card).textContent = fLarga(f);
+    const val = $("[data-f=valor]", card);
+    val.textContent = fmtVal.format(v);
+    val.classList.remove("skeleton");
+    const delta = $("[data-f=delta]", card);
+    delta.textContent = "";
+    if (prev) {
+      const d = v - prev[1], pct = (d / prev[1]) * 100;
+      const b = document.createElement("b");
+      b.textContent = `${flecha(d)} ${signo(d, fmtVal)} (${signo(pct, f2)}%)`;
+      delta.append(b, document.createTextNode(` vs. ${fCorta(prev[0])}`));
+    }
+    if (extra) extra(card, serie[n - 1]);
+  }
+
+  // ---------- grafica ----------
+  function serieActual() {
+    const s = serie(state.mon);
+    if (!s.length) return s;
+    const fin = toDate(s[s.length - 1][0]);
+    const ini = new Date(fin); ini.setDate(ini.getDate() - state.dias);
+    return s.filter((r) => toDate(r[0]) >= ini);
+  }
+
+  function niceTicks(min, max, n) {
+    const span = max - min || Math.abs(max) || 1;
+    const raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= n) || 10 * mag;
+    const out = [];
+    for (let t = Math.ceil(min / step) * step; t <= max + step * 1e-9; t += step) out.push(+t.toFixed(10));
+    return { ticks: out, step };
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function dibuja() {
+    const s = serieActual();
+    const svg = $("#svg"), tip = $("#tip");
+    [...svg.querySelectorAll(":scope > :not(desc)")].forEach((n) => n.remove());
+    tip.style.opacity = 0;
+    if (s.length < 2) return;
+
+    const fmt = f5, U = UNI[state.mon];
+    const W = svg.clientWidth || 800, H = 300;
+    const M = { t: 12, r: 12, b: 28, l: 58 };
+    const iw = W - M.l - M.r, ih = H - M.t - M.b;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+    const xs = s.map((r) => toDate(r[0]).getTime()), ys = s.map((r) => r[1]);
+    let ymin = Math.min(...ys), ymax = Math.max(...ys);
+    const pad = (ymax - ymin) * 0.12 || ymax * 0.002;
+    ymin -= pad; ymax += pad;
+    const { ticks } = niceTicks(ymin, ymax, 5);
+    ymin = Math.min(ymin, ticks[0]); ymax = Math.max(ymax, ticks[ticks.length - 1]);
+    const x0 = xs[0], x1 = xs[xs.length - 1];
+    const X = (t) => M.l + ((t - x0) / (x1 - x0)) * iw;
+    const Y = (v) => M.t + (1 - (v - ymin) / (ymax - ymin)) * ih;
+
+    // grid + eje y
+    const g = el("g", {}, svg);
+    const dec = Math.max(2, Math.min(5, -Math.floor(Math.log10((ticks[1] - ticks[0]) || 1)) + 1));
+    ticks.forEach((t) => {
+      el("line", { x1: M.l, x2: W - M.r, y1: Y(t), y2: Y(t), stroke: "var(--grid)", "stroke-width": 1 }, g);
+      const tx = el("text", { x: M.l - 8, y: Y(t) + 4, "text-anchor": "end" }, g);
+      tx.textContent = nf(dec).format(t);
+    });
+    // eje x: etiquetas por mes (o por anio en rangos largos)
+    const largo = state.dias > 400;
+    const nLab = Math.max(2, Math.floor(iw / 90));
+    const cands = [];
+    let last = "";
+    s.forEach((r, i) => {
+      const d = toDate(r[0]);
+      const key = largo ? `${d.getFullYear()}-${Math.floor(d.getMonth() / 6)}` : `${d.getFullYear()}-${d.getMonth()}`;
+      if (key !== last && i > 0) cands.push(i);
+      last = key;
+    });
+    const every = Math.ceil(cands.length / nLab) || 1;
+    cands.filter((_, k) => k % every === 0).forEach((i) => {
+      const d = toDate(s[i][0]);
+      const t = el("text", { x: X(xs[i]), y: H - 8, "text-anchor": "middle" }, g);
+      t.textContent = d.toLocaleDateString("es-GT", largo ? { month: "short", year: "numeric" } : { month: "short", year: "2-digit" });
+      el("line", { x1: X(xs[i]), x2: X(xs[i]), y1: M.t + ih, y2: M.t + ih + 4, stroke: "var(--grid)" }, g);
+    });
+
+    // area tenue + linea
+    const pts = s.map((r, i) => `${X(xs[i]).toFixed(1)},${Y(r[1]).toFixed(1)}`);
+    el("path", { d: `M${pts.join("L")}L${X(x1).toFixed(1)},${M.t + ih}L${M.l},${M.t + ih}Z`, fill: "var(--accent-soft)", opacity: 0.7 }, svg);
+    el("path", { d: `M${pts.join("L")}`, fill: "none", stroke: "var(--series)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+    // ultimo punto
+    el("circle", { cx: X(x1), cy: Y(ys[ys.length - 1]), r: 4, fill: "var(--series)", stroke: "var(--surface)", "stroke-width": 2 }, svg);
+
+    // crosshair
+    const ch = el("g", { opacity: 0 }, svg);
+    const vl = el("line", { y1: M.t, y2: M.t + ih, stroke: "var(--text-3)", "stroke-width": 1, "stroke-dasharray": "3 3" }, ch);
+    const cd = el("circle", { r: 5, fill: "var(--series)", stroke: "var(--surface)", "stroke-width": 2 }, ch);
+    const hit = el("rect", { x: M.l, y: M.t, width: iw, height: ih, fill: "transparent", class: "chart-hit", tabindex: 0,
+      "aria-label": "Grafica: use las flechas para recorrer los días" }, svg);
+    let idx = s.length - 1;
+
+    const muestra = (i) => {
+      idx = Math.max(0, Math.min(s.length - 1, i));
+      const cx = X(xs[idx]), cy = Y(ys[idx]);
+      vl.setAttribute("x1", cx); vl.setAttribute("x2", cx);
+      cd.setAttribute("cx", cx); cd.setAttribute("cy", cy);
+      ch.setAttribute("opacity", 1);
+      tip.textContent = "";
+      const st = document.createElement("strong");
+      st.textContent = `${U.pre}${fmt.format(ys[idx])}`;
+      const sp = document.createElement("span");
+      sp.textContent = fLarga(s[idx][0]);
+      tip.append(st, sp);
+      tip.style.opacity = 1;
+      const box = $("#chart").getBoundingClientRect();
+      const scale = box.width / W;
+      const tw = tip.offsetWidth;
+      let left = cx * scale + 14;
+      if (left + tw > box.width) left = cx * scale - tw - 14;
+      tip.style.left = `${left}px`;
+      tip.style.top = `${Math.max(0, cy * scale - 44)}px`;
+    };
+    const oculta = () => { ch.setAttribute("opacity", 0); tip.style.opacity = 0; };
+    const nearest = (px) => {
+      const t = x0 + ((px - M.l) / iw) * (x1 - x0);
+      let lo = 0, hi = xs.length - 1;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; (xs[m] < t ? (lo = m) : (hi = m)); }
+      return t - xs[lo] < xs[hi] - t ? lo : hi;
+    };
+    hit.addEventListener("pointermove", (e) => {
+      const r = svg.getBoundingClientRect();
+      muestra(nearest(((e.clientX - r.left) / r.width) * W));
+    });
+    hit.addEventListener("pointerleave", oculta);
+    hit.addEventListener("focus", () => muestra(idx));
+    hit.addEventListener("blur", oculta);
+    hit.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") { muestra(idx - 1); e.preventDefault(); }
+      if (e.key === "ArrowRight") { muestra(idx + 1); e.preventDefault(); }
+      if (e.key === "Home") { muestra(0); e.preventDefault(); }
+      if (e.key === "End") { muestra(s.length - 1); e.preventDefault(); }
+    });
+
+    // resumen, descripcion accesible y tabla
+    const iMin = ys.indexOf(Math.min(...ys)), iMax = ys.indexOf(Math.max(...ys));
+    const var_ = ys[ys.length - 1] - ys[0], varPct = (var_ / ys[0]) * 100;
+    const stats = [
+      ["Último", `${U.pre}${fmt.format(ys[ys.length - 1])}`, fCorta(s[s.length - 1][0])],
+      ["Mínimo", `${U.pre}${fmt.format(ys[iMin])}`, fCorta(s[iMin][0])],
+      ["Máximo", `${U.pre}${fmt.format(ys[iMax])}`, fCorta(s[iMax][0])],
+      ["Variación del período", `${signo(var_, fmt)}`, `${signo(varPct, f2)}%`],
+    ];
+    const box = $("#stats"); box.textContent = "";
+    stats.forEach(([k, v, sm]) => {
+      const d = document.createElement("div"); d.className = "stat";
+      const kk = document.createElement("div"); kk.className = "k"; kk.textContent = k;
+      const vv = document.createElement("div"); vv.className = "v"; vv.textContent = v;
+      const ss = document.createElement("small"); ss.textContent = sm; vv.appendChild(ss);
+      d.append(kk, vv); box.appendChild(d);
+    });
+    $("#chart-desc").textContent = `${U.desc}, del ${fLarga(s[0][0])} al ${fLarga(s[s.length - 1][0])}. mínimo ${fmt.format(ys[iMin])}, máximo ${fmt.format(ys[iMax])}.`;
+    $("#hist-title").textContent = `Histórico ${U.lbl}`;
+    $("#tbl-h").textContent = U.col;
+    const tb = $("#tbl tbody"); tb.textContent = "";
+    for (let i = s.length - 1; i >= 0; i--) {
+      const tr = document.createElement("tr");
+      const a = document.createElement("td"); a.textContent = fCorta(s[i][0]);
+      const b = document.createElement("td"); b.textContent = fmt.format(s[i][1]);
+      tr.append(a, b); tb.appendChild(tr);
+    }
+  }
+
+  // ---------- render general ----------
+  function render() {
+    const d = state.data;
+    const ultEur = d.eur[d.eur.length - 1];
+    const ultUsd = d.usd[d.usd.length - 1];
+    const notaHabil = ultEur[0] !== ultUsd[0] ? ` · último día hábil: ${fCorta(ultEur[0])}` : "";
+
+    pintaTarjeta($("#card-usd"), serie("usd"), f5);
+    pintaTarjeta($("#card-eurusd"), serie("eurusd"), f5, (card) => {
+      $("[data-f=meta]", card).textContent = `Compra ${f4.format(ultEur[2])} · Venta ${f4.format(ultEur[3])}${notaHabil}`;
+    });
+    pintaTarjeta($("#card-eur"), serie("eur"), f5, (card) => {
+      $("[data-f=meta]", card).textContent = `${f5.format(prom(ultEur))} USD × Q ${f5.format(ultEur[4])}${notaHabil}`;
+    });
+
+    // explicacion con los datos vigentes
+    const X = (k) => $(`[data-x=${k}]`);
+    X("paso1").textContent = `1 EUR = ${f5.format(prom(ultEur))} USD`;
+    X("paso1n").textContent = `Promedio de compra ${f4.format(ultEur[2])} y venta ${f4.format(ultEur[3])} · ${fCorta(ultEur[0])}`;
+    X("paso2").textContent = `1 USD = Q ${f5.format(ultEur[4])}`;
+    X("paso2n").textContent = `Tipo de cambio de referencia · ${fCorta(ultEur[0])}`;
+    X("res").textContent = `1 EUR = Q ${f5.format(ultEur[1])}`;
+    X("resn").textContent = `Equivale a multiplicar ambos tipos de cambio`;
+    X("formula").textContent = `EUR/GTQ = EUR/USD × USD/GTQ = ${f5.format(prom(ultEur))} × ${f5.format(ultEur[4])} = Q ${f5.format(ultEur[1])}`;
+
+    dibuja();
+  }
+
+  // ---------- descarga CSV (ASCII, punto decimal, fechas ISO) ----------
+  function filasCSV(desde) {
+    const d = state.data;
+    const eur = new Map(d.eur.map((r) => [r[0], r]));
+    const out = ["fecha,usd_gtq_referencia,eur_usd_compra,eur_usd_venta,eur_usd_promedio,eur_gtq"];
+    d.usd.forEach(([f, u]) => {
+      if (desde && f < desde) return;
+      const e = eur.get(f);
+      out.push([f, u.toFixed(5),
+        e ? e[2].toFixed(4) : "", e ? e[3].toFixed(4) : "",
+        e ? prom(e).toFixed(5) : "", e ? e[1].toFixed(5) : ""].join(","));
+    });
+    return out.join("\r\n") + "\r\n";
+  }
+  function descarga(todo) {
+    const nota = $("#dl-note");
+    if (state.preview) { nota.textContent = "La descarga funciona en la app desplegada."; return; }
+    const d = state.data;
+    const fin = d.usd[d.usd.length - 1][0];
+    let desde = null;
+    if (!todo) {
+      const ini = toDate(fin); ini.setDate(ini.getDate() - state.dias);
+      desde = `${ini.getFullYear()}-${String(ini.getMonth() + 1).padStart(2, "0")}-${String(ini.getDate()).padStart(2, "0")}`;
+    }
+    const csv = filasCSV(desde);
+    const nombre = `tipo_cambio_banguat_${desde || d.usd[0][0]}_${fin}.csv`;
+    try {
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=us-ascii" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      nota.textContent = "";
+    } catch (e) {
+      nota.textContent = "No se pudo descargar el archivo.";
+    }
+  }
+  $("#dl-periodo").addEventListener("click", () => state.data && descarga(false));
+  $("#dl-todo").addEventListener("click", () => state.data && descarga(true));
+
+  async function carga() {
+    try {
+      const r = await fetch(API, { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      state.data = await r.json();
+      const hora = state.data.actualizado
+        ? new Date(state.data.actualizado).toLocaleTimeString("es-GT", { hour: "2-digit", minute: "2-digit" }) : "";
+      if (state.data.desactualizado) setStatus("stale", `Sin respuesta de Banguat · último dato ${hora}`);
+      else setStatus("live", `En vivo · actualizado ${hora}`);
+      $("#err").hidden = true;
+      render();
+    } catch (e) {
+      if (window.TC_SNAPSHOT && !state.data) {
+        state.data = window.TC_SNAPSHOT;
+        state.preview = true;
+        const t = new Date(state.data.actualizado);
+        setStatus("preview", `Vista previa · datos al ${t.toLocaleDateString("es-GT")} ${t.toLocaleTimeString("es-GT", { hour: "2-digit", minute: "2-digit" })}`);
+        render();
+      } else if (!state.data) {
+        setStatus("stale", "Sin conexión");
+        const box = $("#err"); box.hidden = false;
+        box.textContent = "No se pudo obtener el tipo de cambio. Intente de nuevo en unos minutos.";
+      } else {
+        setStatus("stale", "Sin conexión · mostrando último dato");
+      }
+    }
+  }
+
+  // ---------- controles ----------
+  function seg(id, key, parse) {
+    $(id).addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      $(id).querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+      state[key] = parse(b.dataset.v);
+      if (state.data) dibuja();
+    });
+  }
+  seg("#seg-mon", "mon", (v) => v);
+  seg("#seg-rng", "dias", Number);
+  let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => state.data && dibuja(), 120); });
+
+  if (window.TC_STATIC) {
+    // Modo pagina estatica: los datos vienen incrustados por el Job de Databricks
+    state.data = window.TC_STATIC;
+    const t = new Date(state.data.actualizado);
+    setStatus("live", `Actualizado ${t.toLocaleDateString("es-GT")} · ${t.toLocaleTimeString("es-GT", { hour: "2-digit", minute: "2-digit" })}`);
+    if (window.TC_ARCHIVOS) $("#archivos").hidden = false;
+    render();
+    setInterval(() => location.reload(), 30 * 60 * 1000); // trae la version mas reciente
+  } else {
+    carga();
+    setInterval(carga, REFRESCO_MS);
+  }
+})();
+</script>
+</body>
+</html>
